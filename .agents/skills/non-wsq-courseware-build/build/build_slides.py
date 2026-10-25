@@ -11,6 +11,7 @@ attendance content. The assessment block a WSQ deck would carry is replaced by a
 "How You'll Learn" flow, and the deck closes on the wrap-up + Thank You.
 """
 import os, sys, re
+from PIL import Image
 from pptx import Presentation
 from pptx.util import Inches, Pt
 from pptx.dml.color import RGBColor
@@ -29,6 +30,10 @@ def _load_domains():
     files=sorted(_glob.glob(os.path.join(HERE,"data_domain[0-9]*.py")),
                  key=lambda p:int("".join(ch for ch in os.path.basename(p) if ch.isdigit()) or 0))
     for f in files:
+        # Only exact data_domainN.py files. Editor/Drive duplicates such as
+        # "data_domain1 2.py" match the glob and would double every activity.
+        if not re.fullmatch(r"data_domain\d+\.py",os.path.basename(f)):
+            continue
         mod=importlib.import_module(os.path.basename(f)[:-3])
         n="".join(ch for ch in os.path.basename(f) if ch.isdigit())
         acts+=getattr(mod,f"DOMAIN{n}",[])
@@ -131,9 +136,13 @@ def footer(s):
 def head(s,title,kicker=None,kcolor=BLUE):
     rect(s,0,0,SW,SH,_bg()); rect(s,0,0,Inches(0.28),Inches(1.55),_acc(kcolor))
     if kicker: txt(s,Inches(0.85),Inches(0.48),Inches(11.9),Inches(0.4),[[(kicker,14,_acc(kcolor),True)]])
-    # Auto-fit the title so long lab titles never wrap into the divider rule below.
-    L=len(str(title)); tsize = 29 if L<=42 else (25 if L<=56 else 21)
-    txt(s,Inches(0.85),Inches(0.9),Inches(11.95),Inches(0.82),[[(title,tsize,_ink(),True)]],anchor=MSO_ANCHOR.MIDDLE)
+    # Auto-fit the title so long titles never wrap into the divider rule below.
+    # The ladder runs down to 13pt: a title long enough to need two lines at 17pt
+    # (a day theme reused as a heading, say) would otherwise overlap the rule.
+    L=len(str(title))
+    tsize = 29 if L<=40 else (21 if L<=52 else (17 if L<=72 else (15 if L<=95 else 13)))
+    title_box=txt(s,Inches(0.85),Inches(0.9),Inches(11.95),Inches(0.82),[[(title,tsize,_ink(),True)]],anchor=MSO_ANCHOR.MIDDLE)
+    title_box.text_frame.word_wrap=False
     rect(s,Inches(0.85),Inches(1.8),Inches(11.63),Inches(0.02),_line())
     return s
 def _logo(name):
@@ -196,12 +205,18 @@ def two_col(title,left,right,kicker=None,lhead="",rhead=""):
     bullets(s,Inches(1.1),Inches(2.7),Inches(5.2),Inches(3.8),left,size=16,color=_ink())
     bullets(s,Inches(7.2),Inches(2.7),Inches(5.05),Inches(3.8),right,size=16,color=_ink(),mcolor=TEAL); footer(s); return s
 def cards3(title,cards,kicker):
-    s=head(slide(),title,kicker); xs=[Inches(0.85),Inches(5.0),Inches(9.15)]
+    s=head(slide(),title,kicker)
+    # Widen the cards when fewer than three are supplied, so one or two cards fill
+    # the row instead of huddling at the left edge.
+    n=max(1,min(3,len(cards)))
+    if n==1: xs=[Inches(0.85)]; widths=[Inches(11.65)]
+    elif n==2: xs=[Inches(0.85),Inches(6.95)]; widths=[Inches(5.7),Inches(5.55)]
+    else: xs=[Inches(0.85),Inches(5.0),Inches(9.15)]; widths=[Inches(3.65)]*3
     for i,c in enumerate(cards[:3]):
-        x=xs[i]; col=c[0]
-        rect(s,x,Inches(1.95),Inches(3.65),Inches(4.7),_panel()); rect(s,x,Inches(1.95),Inches(3.65),Inches(0.12),col)
-        txt(s,x+Inches(0.25),Inches(2.2),Inches(3.2),Inches(0.6),[[(c[1],19,col,True)]])
-        bullets(s,x+Inches(0.25),Inches(2.95),Inches(3.2),Inches(3.4),c[2],size=14,color=_ink(),mcolor=col,gap=9)
+        x=xs[i]; w=widths[i]; col=c[0]
+        rect(s,x,Inches(1.95),w,Inches(4.7),_panel()); rect(s,x,Inches(1.95),w,Inches(0.12),col)
+        txt(s,x+Inches(0.25),Inches(2.2),w-Inches(0.5),Inches(0.6),[[(c[1],19,col,True)]])
+        bullets(s,x+Inches(0.25),Inches(2.95),w-Inches(0.5),Inches(3.4),c[2],size=14,color=_ink(),mcolor=col,gap=9)
     footer(s); return s
 def big_statement(line1,line2,kicker,color=BLUE):
     s=slide(); rect(s,0,0,SW,SH,_bg()); rect(s,0,0,Inches(0.28),SH,color)
@@ -216,20 +231,24 @@ so past this the cards shrink below their own text and collide. Beyond it,
 tile_grid paginates onto continuation slides instead of shrinking."""
 TILE_MAX=6
 
-def tile_grid(title,items,kicker=None,cols=2,size=15,icons=None,accent=BLUE,_start=0):
+def tile_grid(title,items,kicker=None,cols=2,size=15,icons=None,accent=BLUE,_start=0,_fixed_rows=None):
     """Grid of light panels, each with a coloured icon/number badge + text.
     items: list of strings (or (title,caption) tuples). Much richer than a bullet list.
     More than TILE_MAX items paginate onto '(cont.)' slides; returns the last slide.
     _start offsets the badge numbers so continuation slides keep counting up."""
     if len(items)>TILE_MAX:
         last=None
+        # Spread items evenly across the pages rather than filling each page to
+        # TILE_MAX: 7 items become 4+3, not a full page followed by a lone tile.
         pages=math.ceil(len(items)/TILE_MAX)
         chunk=math.ceil(len(items)/pages)
-        for start in range(0,len(items),chunk):
-            part=items[start:start+chunk]
-            ic=icons[start:start+chunk] if icons else None
-            last=tile_grid(title if start==0 else f"{title} (cont.)",part,
-                           kicker=kicker,cols=cols,size=size,icons=ic,accent=accent,_start=start)
+        fixed_rows=math.ceil(chunk/cols)
+        for i in range(0,len(items),chunk):
+            part=items[i:i+chunk]
+            ic=icons[i:i+chunk] if icons else None
+            last=tile_grid(title if i==0 else f"{title} (cont.)",part,
+                           kicker=kicker,cols=cols,size=size,icons=ic,accent=accent,
+                           _start=i,_fixed_rows=fixed_rows)
         return last
     s=head(slide(),title,kicker,kcolor=accent)
     n=len(items); rows=math.ceil(n/cols)
@@ -239,13 +258,17 @@ def tile_grid(title,items,kicker=None,cols=2,size=15,icons=None,accent=BLUE,_sta
     # Card height comes from a FULL page's row count, so a short continuation page
     # keeps the same card size as the page before it instead of stretching each
     # card over the whole area. Capped so a short standalone grid still fills.
-    _rows_h=math.ceil(TILE_MAX/cols) if _start else rows
+    _rows_h=_fixed_rows or rows
     ch=int((AREAH-gy*(_rows_h-1))/_rows_h)
     bd=Inches(0.6)
     for i,it in enumerate(items):
         g=_start+i          # global index across continuation slides
         r=i//cols; c=i%cols
-        x=int(X0+(cw+gx)*c); y=int(Y0+(ch+gy)*r); col=PALETTE[g%len(PALETTE)]
+        x=int(X0+(cw+gx)*c)
+        # Centre a lone tile on the final row instead of stranding it left.
+        if r==rows-1 and n%cols and i==n-1:
+            x=int(X0+(TOTW-cw)/2)
+        y=int(Y0+(ch+gy)*r); col=PALETTE[g%len(PALETTE)]
         rect(s,x,y,cw,ch,_panel()); rect(s,x,y,Inches(0.1),ch,col)
         oval(s,x+Inches(0.28),int(y+ch/2-bd/2),bd,bd,col)
         ic=icons[i] if icons else str(g+1)
@@ -262,13 +285,12 @@ def flow_h(title,steps,kicker=None,color=BLUE):
     s=head(slide(),title,kicker,kcolor=color)
     n=len(steps); X0=Inches(0.85); TOTW=Inches(11.63); gap=Inches(0.34)
     cw=int((TOTW-gap*(n-1))/n); y=Inches(2.55); ch=Inches(3.15); bd=Inches(0.82)
-    body_size=12 if n>=5 else 14
     for i,st in enumerate(steps):
         x=int(X0+(cw+gap)*i)
         rect(s,x,y,cw,ch,_panel()); rect(s,x,y,cw,Inches(0.1),color)
         oval(s,int(x+cw/2-bd/2),int(y+Inches(0.42)),bd,bd,color)
         txt(s,int(x+cw/2-bd/2),int(y+Inches(0.42)),bd,bd,[[(str(i+1),30,WHITE,True)]],align=PP_ALIGN.CENTER,anchor=MSO_ANCHOR.MIDDLE)
-        txt(s,x+Inches(0.16),int(y+Inches(1.55)),cw-Inches(0.32),int(ch-Inches(1.7)),[[(st,body_size,_ink(),False)]],align=PP_ALIGN.CENTER,anchor=MSO_ANCHOR.MIDDLE)
+        txt(s,x+Inches(0.16),int(y+Inches(1.55)),cw-Inches(0.32),int(ch-Inches(1.7)),[[(st,14,_ink(),False)]],align=PP_ALIGN.CENTER)
         if i<n-1:
             txt(s,int(x+cw-Inches(0.04)),int(y+ch/2-Inches(0.3)),int(gap+Inches(0.08)),Inches(0.6),
                 [[("▶",15,color,True)]],align=PP_ALIGN.CENTER,anchor=MSO_ANCHOR.MIDDLE)
@@ -302,12 +324,8 @@ def activity_overview(tag,title,desc,build,services,kicker):
     txt(s,Inches(0.85),Inches(2.55),Inches(11.7),Inches(1.6),[[(desc,dsize,_ink(),False)]])
     rect(s,Inches(0.85),Inches(4.3),Inches(11.7),Inches(2.0),_panel())
     txt(s,Inches(1.1),Inches(4.5),Inches(11),Inches(0.4),[[("You'll build",14,_acc(BLUE),True)]])
-    # Long connected-lab filenames and manifests need a real multi-line box.
-    # Keep resource detail in the matching lab instead of letting it collide
-    # with the deliverable text on the slide.
-    bL=len(str(build)); bsize = 17 if bL<=190 else (15 if bL<=300 else 13)
-    txt(s,Inches(1.1),Inches(4.86),Inches(11),Inches(0.92),[[(build,bsize,_ink(),True)]])
-    txt(s,Inches(1.1),Inches(5.84),Inches(11.2),Inches(0.34),[[("Resources:  ",14,_grey(),True),("Use the matching lab's prerequisites and supplied files.",14,_grey(),False)]]); footer(s); return s
+    txt(s,Inches(1.1),Inches(4.9),Inches(11),Inches(0.6),[[(build,18,_ink(),True)]])
+    txt(s,Inches(1.1),Inches(5.6),Inches(11.2),Inches(0.6),[[("Tools:  ",13,_grey(),True),(services,13,_grey(),False)]]); footer(s); return s
 def step_slide(kicker,act_title,n,total,text,cmd=""):
     s=head(slide(),act_title,kicker,TEAL)
     oval(s,Inches(0.85),Inches(2.5),Inches(1.4),Inches(1.4),_acc(TEAL))
@@ -322,7 +340,14 @@ def step_slide(kicker,act_title,n,total,text,cmd=""):
             rect(s,Inches(2.55),Inches(4.15),Inches(10.1),Inches(0.95),RGBColor(0x10,0x14,0x1E),line=DK_FAINT)
         else:
             rect(s,Inches(2.55),Inches(4.15),Inches(10.1),Inches(0.95),RGBColor(0x0B,0x12,0x20))
-        txt(s,Inches(2.8),Inches(4.28),Inches(9.7),Inches(0.7),[[("$ "+cmd,13,RGBColor(0x9C,0xDC,0xFE),False)]],anchor=MSO_ANCHOR.MIDDLE)
+        # AI vibe coding prompts read as prompts, not shell; long text is trimmed to fit the box
+        # (the full prompt is in the lab README and the Learner Guide).
+        shown="$ "+cmd
+        if cmd.startswith("PROMPT:"):
+            shown="PROMPT › "+cmd[len("PROMPT:"):].strip()
+        if len(shown)>250:
+            shown=shown[:250].rsplit(" ",1)[0]+" … (full text in the lab README)"
+        txt(s,Inches(2.8),Inches(4.28),Inches(9.7),Inches(0.7),[[(shown,13,RGBColor(0x9C,0xDC,0xFE),False)]],anchor=MSO_ANCHOR.MIDDLE)
     footer(s); return s
 def dark_rows(tag,title_lines,sub_lines,rows,warn=None,accent=None,numbered=True):
     """Masterclass-style dark feature slide: terminal tag, amber (or custom
@@ -568,14 +593,25 @@ def dark_pairs(tag,title_lines,sub,pairs):
         txt(s,x+Inches(2.6),yv,cw-Inches(2.8),Inches(rh),[[(desc,12.5,IVORY,False)]],anchor=MSO_ANCHOR.MIDDLE)
     footer(s); return s
 def shot(title,img,kicker=None,caption=""):
-    """Screenshot slide — a framed, real UI capture with a caption (16:10 source)."""
+    """Screenshot slide — a framed, undistorted capture with a caption.
+
+    The image is scaled to fit the content area at its OWN aspect ratio; a
+    portrait page or a non-16:10 capture is letterboxed rather than stretched."""
     s=head(slide(),title,kicker,TEAL)
-    H=Inches(4.5); W=int(H*1440/900)          # native 1440x900 aspect
-    x=int((SW-W)/2); y=Inches(2.02)
+    with Image.open(img) as im:
+        iw,ih=im.size
+    maxw,maxh=Inches(10.9),Inches(4.48)
+    scale=min(maxw/iw,maxh/ih); W=int(iw*scale); H=int(ih*scale)
+    x=int((SW-W)/2); y=int(Inches(2.02)+(maxh-H)/2)
     rect(s,x-Inches(0.06),y-Inches(0.06),W+Inches(0.12),H+Inches(0.12),_line())
-    s.shapes.add_picture(img,x,y,height=H)
+    s.shapes.add_picture(img,x,y,width=W,height=H)
     if caption:
-        txt(s,Inches(0.85),Inches(6.68),Inches(11.6),Inches(0.35),[[(caption,12,_grey(),False)]],align=PP_ALIGN.CENTER)
+        # A long caption gets two lines at a smaller size instead of clipping.
+        long_caption=len(caption)>120
+        txt(s,Inches(0.85),Inches(6.43 if long_caption else 6.68),Inches(11.6),
+            Inches(0.54 if long_caption else 0.35),
+            [[(caption,10.5 if long_caption else 12,_grey(),False)]],
+            align=PP_ALIGN.CENTER,anchor=MSO_ANCHOR.MIDDLE)
     footer(s); return s
 def test_slide(act_title,text,kicker):
     s=head(slide(),act_title,kicker,TEAL)
@@ -594,12 +630,20 @@ cover()
 
 # ---------------- ADMIN ----------------
 section("COURSE ADMINISTRATION","Welcome & Housekeeping","")
+trainer_slide("YOUR TRAINER · GENERAL","Your Trainer","General Trainer template —\nto be completed by the trainer",
+ [("Name",""),("Title / Designation",""),("Qualifications",""),
+  ("Areas of expertise",""),("Training & industry experience",""),("Contact","")],
+ initials="?",accent=GREY)
+# Initials are derived from the name so the badge can never disagree with the
+# name printed beneath it when the course is delivered by a different trainer.
+_tn=[w for w in C.TRAINER.replace(".","").split() if w.lower() not in ("dr","mr","ms","mrs","prof")]
+_ini="".join(w[0] for w in _tn[:2]).upper() or "T"
 trainer_slide("YOUR TRAINER",C.TRAINER,"Principal Trainer\nTertiary Infotech Academy Pte. Ltd.",
  [("Role","Principal Trainer, Tertiary Infotech Academy Pte. Ltd."),
   ("Certification",getattr(C,"TRAINER_CERT","Industry certified in the subject area of this course.")),
   ("Delivers",getattr(C,"TRAINER_DELIVERS","Professional short courses for Tertiary Infotech Academy.")),
   ("Founder","Founder and lead instructor at Tertiary Infotech / Tertiary Courses.")],
- initials="AA",accent=BLUE)
+ initials=_ini,accent=BLUE)
 content("Let's Know Each Other",getattr(C,"ICE_BREAKER",[
  "Your name and organisation / role.",
  "Your experience with this subject (if any).",
@@ -670,21 +714,27 @@ def _topics_by_day():
 
 _BY_DAY=_topics_by_day()
 _TB={t["num"]:t for t in C.TOPICS}
-_left=[(f"Day 1 — {C.DAY_THEMES[1]}",0)]+[_topic_line(_TB[n]) for n in _BY_DAY.get(1,[]) if n in _TB]
 if C.DAYS == 1:
-    _right=[
-        ("Daily timing",0),(getattr(C,"DAILY_TIMING","8 scheduled hours, excluding lunch"),1),
-        ("Learning arc",0),("Concept → guided build → verify → discuss → recap",1),
-        ("Connected practice",0),(getattr(C,"CONNECTED_PRACTICE","Four connected labs build one bounded course evidence pack."),1),
-    ]
-    two_col("Lesson Plan — 1 Day, 8 Scheduled Hours",_left,_right,
-     kicker="SCHEDULE",lhead="Course flow",rhead="Timing & approach")
+    # A one-day course has no "Day 2" to put in the right column (and indexing
+    # DAY_THEMES[2] would fail), so split the single day into morning/afternoon.
+    _ordered=[t["num"] for t in C.TOPICS]
+    _split=max(1,len(_ordered)//2)
+    _left=[(getattr(C,"MORNING_LABEL","Morning · 9:30am–1:10pm"),0)]+[_topic_line(_TB[n]) for n in _ordered[:_split] if n in _TB]
+    _right=[(getattr(C,"AFTERNOON_LABEL","Afternoon · 2:10pm–6:30pm"),0)]+[_topic_line(_TB[n]) for n in _ordered[_split:] if n in _TB]+[
+     ("Daily timing",0),(getattr(C,"DAILY_TIMING_SHORT","9:30am–6:30pm · 1-hour lunch · tea breaks within training time"),1)]
+    if getattr(C,"PREREQUISITE",None):
+        _right+=[("Prerequisite",0),(C.PREREQUISITE,1)]
+    # The day theme can be a full sentence, so keep it off the heading (it would
+    # crowd the divider rule) and let the morning/afternoon columns carry detail.
+    two_col(getattr(C,"ONE_DAY_HEADING","Lesson Plan — One Day, 8 hours"),_left,_right,
+            kicker="SCHEDULE",lhead="Morning",rhead="Afternoon")
 else:
     _d2=min(2,C.DAYS)
+    _left=[(f"Day 1 — {C.DAY_THEMES[1]}",0)]+[_topic_line(_TB[n]) for n in _BY_DAY.get(1,[]) if n in _TB]
     _right=[(f"Day {_d2} — {C.DAY_THEMES[_d2]}",0)]+[_topic_line(_TB[n]) for n in _BY_DAY.get(_d2,[]) if n in _TB]+[
-     ("Daily timing",0),(getattr(C,"DAILY_TIMING","8 scheduled hours per day, excluding lunch"),1)]
+     ("Daily timing",0),("9:30am–6:30pm · 1-hour lunch · tea breaks within training time",1)]
     two_col(f"Lesson Plan — {C.DAYS} Days, 8 hours/day",_left,_right,
-     kicker="SCHEDULE",lhead="Day 1",rhead=f"Day {_d2}")
+            kicker="SCHEDULE",lhead="Day 1",rhead=f"Day {_d2}")
 # Learning-outcome tiles built straight from course_data. Optional per-course
 # short titles via course_data.LO_TITLES; otherwise fall back to "LO1", "LO2", …
 _LO_TITLES=getattr(C,"LO_TITLES",[])
@@ -749,21 +799,6 @@ for t in C.TOPICS:
     tile_grid(f"Key Concepts — {t['title']}", t["concepts"],
               kicker=(f"COURSE COVERAGE {_w}" if _w else "KEY CONCEPTS"),
               cols=2, size=14, accent=accent)
-    # Course-specific knowledge sections are authored once in course_data.py
-    # and rendered as visual frameworks here and as detailed study text in the
-    # Learner Guide. This keeps the deck concept-first without duplicating text.
-    for ks in t.get("teaching", []):
-        kind=ks.get("kind", "tiles")
-        kicker=ks.get("kicker", f"TOPIC {t['code']} · CONCEPT")
-        if kind == "flow":
-            flow_h(ks["title"], ks["visual"], kicker=kicker, color=accent)
-        elif kind == "compare":
-            two_col(ks["title"], ks["left"], ks["right"], kicker=kicker,
-                    lhead=ks.get("left_title", "Option A"),
-                    rhead=ks.get("right_title", "Option B"))
-        else:
-            tile_grid(ks["title"], ks["visual"], kicker=kicker,
-                      cols=2, size=14, accent=accent)
     acts=TOPIC_ACTS[t["num"]]
     # a card summary of the labs in this topic
     # Split the topic's labs into at most three cards. Only emit cards that
@@ -776,15 +811,18 @@ for t in C.TOPICS:
     cards3(f"Hands-On Labs — {t['title']}", cards, kicker="WHAT YOU'LL DO")
     # per activity
     for a in acts:
+        # Knowledge -> lab: a lab's own concepts come immediately before it.
+        if a.get("concepts"):
+            tile_grid(f"Key Concepts for Lab {a['num']}", a["concepts"], kicker=f"BEFORE LAB {a['num']}",
+                      cols=2, size=14, accent=accent)
         activity_overview(f"LAB {a['num']}", a["title"], a["desc"], a["build"], a["services"], kicker=f"TOPIC {t['code']} · HANDS-ON")
         _lab_extras(a["num"])
-        # Keep click-by-click detail in labs/*.md and the Learner Guide. The
-        # deck shows a single, readable route plus the evidence required to
-        # verify the result, preserving a knowledge-to-practice ratio above 60%.
-        route=list(a.get("deck_steps", [si for si,_sc in a["steps"][:4]]))
-        route.append(a.get("deck_verify", "Run the Test It checks and save the verified checkpoint."))
-        flow_h(f"Lab {a['num']} — Key Route", route,
-               kicker=f"TOPIC {t['code']} · PRACTICE ROUTE", color=accent)
+        # The deck never shows YouTube reference links — videos live in the labs/ READMEs only.
+        steps=[(si,sc) for (si,sc) in a["steps"] if "youtube" not in sc.lower() and "youtube" not in si.lower()]
+        total=len(steps)
+        for i,(instr,cmd) in enumerate(steps,1):
+            step_slide(f"LAB {a['num']}", a["title"], i, total, instr, cmd)
+        test_slide(a["title"], a["test"], kicker=f"LAB {a['num']} · VERIFY")
     # topic recap
     content(f"Recap — {t['title']}",
             ["You can now: "+a["objective"] for a in {x["objective"]:x for x in acts}.values()][:6],

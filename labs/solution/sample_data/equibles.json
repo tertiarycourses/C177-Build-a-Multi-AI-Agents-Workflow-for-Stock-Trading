@@ -1,0 +1,57 @@
+{
+  "NVDA": {
+    "valuation": {
+      "peRatio": 52.1,
+      "evToEbitda": 44.0,
+      "priceToSales": 27.5
+    },
+    "short_interest": [
+      {
+        "date": "2026-10-15",
+        "shortInterest": 240000000.0,
+        "daysToCover": 1.1
+      }
+    ],
+    "insider": [
+      {
+        "name": "Director A",
+        "type": "Sale",
+        "shares": 50000
+      }
+    ],
+    "errors": {},
+    "_note": "SYNTHETIC training data - not real company figures"
+  },
+  "AAPL": {
+    "valuation": {
+      "peRatio": 34.8,
+      "evToEbitda": 26.0,
+      "priceToSales": 8.9
+    },
+    "short_interest": [
+      {
+        "date": "2026-10-15",
+        "shortInterest": 110000000.0,
+        "daysToCover": 2.0
+      }
+    ],
+    "insider": [
+      {
+        "name": "Officer B",
+        "type": "Sale",
+        "shares": 20000
+      }
+    ],
+    "errors": {},
+    "_note": "SYNTHETIC training data - not real company figures"
+  },
+  "SPY": {
+    "valuation": null,
+    "short_interest": [],
+    "insider": [],
+    "errors": {
+      "valuation": "ETF: no valuation multiples"
+    },
+    "_note": "SYNTHETIC training data - not real company figures"
+  }
+}

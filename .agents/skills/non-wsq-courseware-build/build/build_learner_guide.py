@@ -12,6 +12,8 @@ import os, sys
 from docx import Document
 from docx.shared import Pt, RGBColor
 from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.oxml import OxmlElement
+from docx.oxml.ns import qn
 
 HERE=os.path.dirname(os.path.abspath(__file__)); sys.path.insert(0,HERE)
 import course_data as C
@@ -21,6 +23,11 @@ def _load_domains():
     acts=[]
     for f in sorted(_g0.glob(os.path.join(HERE,"data_domain[0-9]*.py")),
                     key=lambda q:int("".join(c for c in os.path.basename(q) if c.isdigit()) or 0)):
+        # Skip editor/Drive duplicates like "data_domain1 2.py", which match the
+        # glob and would otherwise double every activity in the guide.
+        base=os.path.basename(f)
+        if not (base.startswith("data_domain") and base.endswith(".py") and base[11:-3].isdigit()):
+            continue
         n="".join(c for c in os.path.basename(f) if c.isdigit())
         acts+=getattr(importlib.import_module(os.path.basename(f)[:-3]),f"DOMAIN{n}",[])
     return acts
@@ -41,7 +48,12 @@ REPO=_find_repo(HERE); ASSETS=os.path.join(os.path.dirname(HERE),"assets")
 # terse course_data steps if a README is missing/unparseable.
 import glob as _glob, re as _re
 def _readme_steps(num):
-    cands=_glob.glob(os.path.join(REPO,"labs",f"lab{num:02d}-*","README.md"))
+    # Lab folders are named "lab-NN-slug"; a flat "lab-NN-*.md" is also accepted.
+    cands=_glob.glob(os.path.join(REPO,"labs",f"lab-{num:02d}-*.md"))
+    if not cands:
+        cands=_glob.glob(os.path.join(REPO,"labs",f"lab-{num:02d}-*","README.md"))
+    if not cands:
+        cands=_glob.glob(os.path.join(REPO,"labs",f"lab{num:02d}-*","README.md"))
     if not cands: return None
     txt=open(cands[0],encoding="utf-8").read()
     # Terminate the Steps body only at a 2-hash section heading ("## Verification"),
@@ -50,11 +62,11 @@ def _readme_steps(num):
     if not m: return None
     body=m.group(1).strip()
     # Handle both step formats: "N. **Title.** prose" list items AND "### N. Title" headers.
-    items=_re.split(r'\n(?=(?:#{2,4}\s*)?\d+\.\s)', body)
+    items=_re.split(r'\n(?=(?:#{2,4}\s*)?(?:Step\s+)?\d+(?:\.|\s))', body, flags=_re.I)
     out=[]
     for it in items:
         it=it.strip()
-        if not _re.match(r'(?:#{2,4}\s*)?\d+\.\s', it): continue
+        if not _re.match(r'(?:#{2,4}\s*)?(?:Step\s+)?\d+(?:\.|\s)', it, _re.I): continue
         cm=_re.search(r'```[a-zA-Z0-9]*\n(.*?)```', it, _re.S)
         cmd=cm.group(1).strip() if cm else ""
         # ignore non-command fenced snippets (e.g. ```text chat prompts) — keep only real commands
@@ -63,7 +75,7 @@ def _readme_steps(num):
         text=it[:cm.start()] if cm else it
         # drop markdown table rows (| ... |) — tables don't flatten into prose
         text="\n".join(l for l in text.splitlines() if not l.strip().startswith("|"))
-        text=_re.sub(r'^(?:#{2,4}\s*)?\d+\.\s*','',text)      # drop leading '### N.' / 'N.'
+        text=_re.sub(r'^(?:#{2,4}\s*)?(?:Step\s+)?\d+(?:\.|\s)\s*','',text,flags=_re.I)
         text=_re.sub(r'\*\*(.*?)\*\*', r'\1', text)           # drop bold markers
         text=_re.sub(r'\*(.*?)\*', r'\1', text)               # drop italics
         text=_re.sub(r'`([^`]+)`', r'\1', text)               # drop inline code ticks
@@ -82,6 +94,7 @@ def p(t):  B.append(("p",t))
 def bullets(xs): B.append(("bullets",xs))
 def steps(xs): B.append(("steps",xs))
 def code(t): B.append(("code",t))
+def table(headers,rows): B.append(("table",headers,rows))
 def note(t): B.append(("note",t))
 def rule(): B.append(("rule",))
 
@@ -117,30 +130,16 @@ for t in C.TOPICS:
     h1(f"Topic {t['code']} — {t['title']}" + (f"  ({t['weighting']})" if t.get("weighting") else ""))
     p(t["subtitle"])
     h3("Key concepts")
-    bullets([f"{term}: {definition}" for term, definition in t["concepts"]])
-    for ks in t.get("teaching", []):
-        h2(ks["title"])
-        for para in ks.get("paragraphs", []):
-            p(para)
-        h3("Visual framework")
-        if ks.get("kind") == "compare":
-            p(f"{ks.get('left_title','Option A')}: " + " | ".join(ks.get("left", [])))
-            p(f"{ks.get('right_title','Option B')}: " + " | ".join(ks.get("right", [])))
-        else:
-            vis=[]
-            for item in ks.get("visual", []):
-                vis.append(f"{item[0]} — {item[1]}" if isinstance(item, tuple) else item)
-            bullets(vis)
-    topic_acts=[x for x in ACT if x["topic"]==t["num"]]
-    for a in topic_acts:
+    bullets(t["concepts"])
+    for a in [x for x in ACT if x["topic"]==t["num"]]:
+        if a.get("concepts"):
+            h2(f"Key Concepts for Lab {a['num']}")
+            bullets([f"{c[0]}: {c[1]}" if isinstance(c,(tuple,list)) else c for c in a["concepts"]])
         h2(f"Lab {a['num']} — {a['title']}")
         p(f"Learning outcome: {a['objective']}.")
         p(f"Goal: {a['desc']}")
-        p(f"Duration: {a.get('duration','Refer to the Lesson Plan')}.")
         h3("What you'll build")
         p(a["build"]+f"   (Tools: {a['services']}.)")
-        if a.get("prerequisites"):
-            h3("Prerequisites"); bullets(a["prerequisites"])
         h3("Step-by-step")
         # Prefer the detailed README steps. The LG never shows YouTube reference
         # links — videos live in the labs/ READMEs only.
@@ -149,31 +148,16 @@ for t in C.TOPICS:
         steps(st)
         h3("Test it")
         p(a["test"])
-        if a.get("checkpoint"):
-            h3("Checkpoint for the next lab"); p(a["checkpoint"])
-        if a.get("troubleshooting"):
-            h3("Troubleshooting")
-            bullets([f"{issue}: {fix}" for issue,fix in a["troubleshooting"]])
-        if a.get("challenge"):
-            h3("Challenge"); p(a["challenge"])
-        if a.get("reflection"):
-            h3("Reflection"); p(a["reflection"])
-        note(f"Full steps, commands, checkpoints, and troubleshooting are in labs/lab-{a['num']:02d}-*.md. "
+        note(f"Full commands and screenshots are in labs/lab-{a['num']:02d}-*.md. "
              + getattr(C,"LAB_NOTE","Use only accounts and data you are authorised to use."))
         rule()
-    h2(f"Recap — {t['title']}")
-    p("You can now:")
-    bullets([a["objective"] for a in topic_acts])
-    if topic_acts:
-        p("Carry forward the verified lab checkpoints and resolve any OWNER TO VERIFY items with the named owner before the next topic.")
-    rule()
 
 _WRAP=getattr(C,"LG_WRAPUP",None)
 if _WRAP:
     h1(_WRAP.get("title","Wrap-Up"))
     if _WRAP.get("intro"): p(_WRAP["intro"])
     for sec in _WRAP.get("sections",[]):
-        h3(sec.get("title",""));
+        h3(sec.get("title",""))
         if sec.get("text"): p(sec["text"])
         if sec.get("bullets"): bullets(sec["bullets"])
     rule()
@@ -214,9 +198,14 @@ def render_md():
         elif kind=="steps":
             for i,(instr,cmd) in enumerate(rest[0],1):
                 out.append(f"{i}. {instr}")
-                if cmd: out+=["",f"   ```bash",f"   {cmd}","   ```",""]
+                if cmd: out+=["",f"   ```text",f"   {cmd}","   ```",""]
             out.append("")
-        elif kind=="code": out+=["```bash",rest[0],"```",""]
+        elif kind=="code": out+=["```text",rest[0],"```",""]
+        elif kind=="table":
+            heads,rows=rest[0],rest[1]
+            out+=["| "+" | ".join(heads)+" |","|"+"---|"*len(heads)]
+            out+=["| "+" | ".join(str(c) for c in r)+" |" for r in rows]
+            out+=[""]
         elif kind=="note": out+=[f"> **Note:** {rest[0]}",""]
         elif kind=="rule": out+=["---",""]
         elif kind=="dl":
@@ -225,7 +214,7 @@ def render_md():
     return "\n".join(out)
 
 MD_OUT=os.path.join(REPO,f"LG-{C.SHORT_TITLE}.md")
-with open(MD_OUT,"w",encoding="utf-8") as f: f.write(render_md())
+with open(MD_OUT,"w") as f: f.write(render_md())
 print("Saved",MD_OUT)
 
 # ---------------- render DOCX ----------------
@@ -243,17 +232,38 @@ prodoc.add_toc(doc)
 
 def code_para(text):
     for line in text.split("\n"):
-        para=doc.add_paragraph(); prodoc._shade_para(para) if hasattr(prodoc,"_shade_para") else None
-        r=para.add_run(line); r.font.name="Consolas"; r.font.size=Pt(9.5); r.font.color.rgb=INKCODE
+        para=doc.add_paragraph()
+        ppr=para._p.get_or_add_pPr(); shd=OxmlElement("w:shd"); shd.set(qn("w:fill"),"EAF2FF"); ppr.append(shd)
+        para.paragraph_format.keep_together=True
+        para.paragraph_format.left_indent=Pt(10); para.paragraph_format.right_indent=Pt(10)
+        # Blank lines separate parts of a prompt; keep them tight.
+        blank=not line.strip()
+        para.paragraph_format.space_before=Pt(0 if blank else 4)
+        para.paragraph_format.space_after=Pt(0 if blank else 3)
+        r=para.add_run(line); r.font.name="Consolas"; r.font.size=Pt(3 if blank else 9.5); r.font.color.rgb=INKCODE
 
 for kind,*rest in B:
     if kind=="h1": doc.add_heading(rest[0],level=1)
     elif kind=="h2": doc.add_heading(rest[0],level=2)
     elif kind=="h3":
         para=doc.add_paragraph(); r=para.add_run(rest[0]); r.bold=True; r.font.size=Pt(11); r.font.color.rgb=BRAND
-    elif kind=="p": doc.add_paragraph(rest[0])
+    elif kind=="p":
+        # Honour **bold** spans so emphasis survives into Word instead of
+        # printing literal asterisks.
+        para=doc.add_paragraph(); para.paragraph_format.keep_together=True
+        for i,seg in enumerate(_re.split(r"\*\*(.+?)\*\*",rest[0])):
+            if seg: para.add_run(seg).bold=bool(i%2)
     elif kind=="bullets":
         for x in rest[0]: doc.add_paragraph(x,style="List Bullet")
+    elif kind=="table":
+        heads,rows=rest[0],rest[1]
+        tbl=doc.add_table(rows=1,cols=len(heads)); tbl.style="Table Grid"
+        for cell,head in zip(tbl.rows[0].cells,heads):
+            cell.text=""; r=cell.paragraphs[0].add_run(head); r.bold=True; r.font.size=Pt(9.5)
+            prodoc._shade_cell(cell,"EAF2FF")
+        for row in rows:
+            for cell,val in zip(tbl.add_row().cells,row):
+                cell.text=""; r=cell.paragraphs[0].add_run(str(val)); r.font.size=Pt(9.5)
     elif kind=="steps":
         for i,(instr,cmd) in enumerate(rest[0],1):
             # Literal per-lab step numbers (Word's List Number style numbers
@@ -261,6 +271,9 @@ for kind,*rest in B:
             para=doc.add_paragraph()
             para.paragraph_format.left_indent=Pt(18)
             para.paragraph_format.space_after=Pt(4)
+            # Keep a step with its command block instead of splitting at a page break.
+            para.paragraph_format.keep_with_next=bool(cmd)
+            para.paragraph_format.keep_together=True
             r=para.add_run(f"{i}.  "); r.bold=True
             para.add_run(instr)
             if cmd: code_para(cmd)

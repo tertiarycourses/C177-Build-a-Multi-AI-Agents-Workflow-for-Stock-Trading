@@ -12,8 +12,6 @@ from docx import Document
 from docx.shared import Pt, RGBColor, Inches
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.enum.table import WD_TABLE_ALIGNMENT
-from docx.oxml import OxmlElement
-from docx.oxml.ns import qn
 
 HERE=os.path.dirname(os.path.abspath(__file__)); sys.path.insert(0,HERE)
 import course_data as C
@@ -23,6 +21,11 @@ def _load_domains():
     acts=[]
     for f in sorted(_glob.glob(os.path.join(HERE,"data_domain[0-9]*.py")),
                     key=lambda q:int("".join(c for c in os.path.basename(q) if c.isdigit()) or 0)):
+        # Skip editor/Drive duplicates like "data_domain1 2.py", which match the
+        # glob and would otherwise double every activity in the schedule.
+        base=os.path.basename(f)
+        if not (base.startswith("data_domain") and base.endswith(".py") and base[11:-3].isdigit()):
+            continue
         n="".join(c for c in os.path.basename(f) if c.isdigit())
         acts+=getattr(importlib.import_module(os.path.basename(f)[:-3]),f"DOMAIN{n}",[])
     return acts
@@ -53,10 +56,6 @@ SCHEDULE=C.SCHEDULE(lab_titles) if callable(getattr(C,"SCHEDULE",None)) else get
 if not SCHEDULE:
     raise SystemExit("course_data.py must define SCHEDULE (dict or callable taking lab_titles)")
 
-# Scheduled minutes per training day, excluding lunch. Defaults to the 8-hour day
-# (480) but non-WSQ courses set their own — e.g. a 15-hour, 2-day course is 450.
-DAY_MINUTES=getattr(C,"DAY_MINUTES",480)
-
 # ------------------------------------------------ build document
 doc=Document()
 normal=doc.styles["Normal"]; normal.font.name="Arial"; normal.font.size=Pt(11)
@@ -74,9 +73,10 @@ def H(text,level=1):
 H("Course Information",1)
 info=[("Course Title",C.TITLE),("Course Reference",C.COURSE_CODE),
       ("Training Provider",C.ORG+"  ("+C.UEN.replace('UEN: ','UEN ')+")"),
-      ("Duration",f"{C.DAYS} day{'s' if C.DAYS>1 else ''} · {C.INSTRUCTIONAL_HOURS:g} instructional hours · {C.CLOCK_HOURS:g} clock hours including tea breaks"),
+      ("Duration",f"{C.DAYS} day{'s' if C.DAYS>1 else ''} · 7.5 instructional hours per day ({C.DAYS*7.5:g} hours)"),
       ("Daily Timing",getattr(C,"DAILY_TIMING","9:30 am – 6:30 pm (1-hour lunch; tea breaks within training time)")),
       ("Mode",getattr(C,"MODE","Instructor-led, hands-on practical labs")),
+      *([("Prerequisite",C.PREREQUISITE)] if getattr(C,"PREREQUISITE",None) else []),
       ("Trainer",C.TRAINER)]
 t=doc.add_table(rows=0,cols=2); t.style="Table Grid"
 for k,v in info:
@@ -108,20 +108,6 @@ def set_cell(cell,text,bold=False,size=9.5,color=None,fill=None,align=None):
 KIND_FILL={"topic":TOPIC_FILL,"break":BREAK_FILL,"lunch":LUNCH_FILL,
            "admin":"F3F5F8","recap":"F3F5F8","lab":None}
 
-def repeat_table_header(row):
-    """Repeat a table's first row after an automatic page break."""
-    trPr = row._tr.get_or_add_trPr()
-    tblHeader = OxmlElement("w:tblHeader")
-    tblHeader.set(qn("w:val"), "true")
-    trPr.append(tblHeader)
-
-def prevent_row_split(row):
-    """Keep one schedule record together when Word paginates the table."""
-    trPr = row._tr.get_or_add_trPr()
-    cant_split = OxmlElement("w:cantSplit")
-    cant_split.set(qn("w:val"), "true")
-    trPr.append(cant_split)
-
 H("Course Schedule",1)
 for day,(theme,rows) in SCHEDULE.items():
     H(f"Day {day} — {theme}",2)
@@ -129,11 +115,9 @@ for day,(theme,rows) in SCHEDULE.items():
     hdr=tbl.add_row().cells
     for i,htext in enumerate(["Time","Duration","Topic / Activity"]):
         set_cell(hdr[i],htext,bold=True,size=10,color=RGBColor(0xFF,0xFF,0xFF),fill=HEADER_FILL)
-    repeat_table_header(tbl.rows[0])
     training=0
     for start,end,mins,kind,text in rows:
         cells=tbl.add_row().cells; fill=KIND_FILL.get(kind)
-        prevent_row_split(tbl.rows[-1])
         set_cell(cells[0],f"{start}–{end}",bold=(kind=="topic"),size=9.5,fill=fill)
         set_cell(cells[1],f"{mins} min",size=9.5,fill=fill)
         set_cell(cells[2],text,bold=(kind=="topic"),size=9.5,fill=fill)
@@ -147,26 +131,22 @@ for day,(theme,rows) in SCHEDULE.items():
     tea=sum(m for _s,_e,m,k,_t in rows if k=="break")
     inst=training-tea
     r=doc.add_paragraph().add_run(
-        f"Total scheduled time: {training} minutes ({training/60:g} hours) excluding lunch — "
+        f"Total scheduled time: {training} minutes ({training//60} hours) excluding lunch — "
         f"of which {inst} minutes ({inst/60:g} hours) are instructional, plus {tea} minutes of tea breaks.")
     r.italic=True; r.font.size=Pt(9.5); r.font.color.rgb=GREY
-    assert training==DAY_MINUTES, f"Day {day} scheduled minutes = {training}, expected {DAY_MINUTES}"
+    _dm=getattr(C,"DAY_MINUTES",480)
+    assert training==_dm, f"Day {day} scheduled minutes = {training}, expected {_dm}"
 
 H("Lab Reference (aligned to course topics)",1)
 tt=doc.add_table(rows=0,cols=3); tt.style="Table Grid"
 hdr=tt.add_row().cells
 for i,htext in enumerate(["Topic","Coverage","Labs"]):
     set_cell(hdr[i],htext,bold=True,size=10,color=RGBColor(0xFF,0xFF,0xFF),fill=HEADER_FILL)
-repeat_table_header(tt.rows[0])
-# NON-WSQ: there is no exam to weight against, so "Coverage" reports each topic's
-# share of the hands-on labs — derived, so it can never drift from the lab data.
-_total_labs=len(ACT) or 1
 for tp in C.TOPICS:
     acts=[a for a in ACT if a["topic"]==tp["num"]]
     cells=tt.add_row().cells
     set_cell(cells[0],f"Topic {tp['code']}: {tp['title']}",bold=True,size=9.5,fill=TOPIC_FILL)
-    coverage=tp.get("weighting") or f"{len(acts)} of {_total_labs} labs ({round(100*len(acts)/_total_labs)}%)"
-    set_cell(cells[1],coverage,size=9.5,fill=TOPIC_FILL)
+    set_cell(cells[1],tp.get("weighting","—"),size=9.5,fill=TOPIC_FILL)
     set_cell(cells[2],", ".join(f"Lab {a['num']}" for a in acts),size=9.5)
 
 prodoc.add_page_numbers(doc)

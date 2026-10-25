@@ -1,0 +1,56 @@
+{
+  "NVDA": [
+    {
+      "subreddit": "stocks",
+      "title": "NVDA beats again, data center growth strong",
+      "text": "record quarter, bullish into earnings",
+      "score": 812,
+      "comments": 230,
+      "url": "https://www.reddit.com/r/stocks/"
+    },
+    {
+      "subreddit": "wallstreetbets",
+      "title": "NVDA calls printing, to the moon",
+      "text": "",
+      "score": 1500,
+      "comments": 400,
+      "url": "https://www.reddit.com/r/wallstreetbets/"
+    },
+    {
+      "subreddit": "investing",
+      "title": "Is NVDA overvalued after the rally?",
+      "text": "valuation risk, could drop",
+      "score": 300,
+      "comments": 150,
+      "url": "https://www.reddit.com/r/investing/"
+    }
+  ],
+  "AAPL": [
+    {
+      "subreddit": "stocks",
+      "title": "AAPL iPhone sales weak in China",
+      "text": "downgrade risk",
+      "score": 400,
+      "comments": 120,
+      "url": "https://www.reddit.com/r/stocks/"
+    },
+    {
+      "subreddit": "investing",
+      "title": "Apple services growth still strong",
+      "text": "steady profit",
+      "score": 250,
+      "comments": 80,
+      "url": "https://www.reddit.com/r/investing/"
+    }
+  ],
+  "SPY": [
+    {
+      "subreddit": "stocks",
+      "title": "SPY at record high, breadth weak",
+      "text": "",
+      "score": 600,
+      "comments": 210,
+      "url": "https://www.reddit.com/r/stocks/"
+    }
+  ]
+}

@@ -2,7 +2,7 @@
 SINGLE SOURCE OF TRUTH — non-WSQ course metadata (TEMPLATE).
 
 Copy this to course_data.py in your course's
-.agents/skills/non-wsq-courseware-build/build/ folder and fill in the values,
+.claude/skills/non-wsq-courseware-build/build/ folder and fill in the values,
 then add data_domain1.py … data_domainN.py (one per topic) using
 data_domain.example.py as the pattern. Every artifact (PPT, LP, LG, LG.md) is
 generated from these files so they stay 100% aligned.
@@ -28,6 +28,17 @@ MODE         = "Instructor-led, hands-on practical labs"
 
 # Optional: all-white house style is the default. Set True for the dark deck.
 DARK_THEME = False
+
+# ------------------------------------------------------------------ scenario
+# The one fictional company the whole course runs on. Lab artifact filenames are
+# stemmed on it, e.g. "Lumina Living Pte Ltd" -> Lumina-Living-Lab-01-….xlsx
+COMPANY = "Your Company Pte Ltd"
+
+# Lab folder slugs, keyed by lab number: labs/lab-<NN>-<slug>/
+LAB_SLUGS = {
+    1: "first-lab-slug",
+    2: "second-lab-slug",
+}
 
 # ------------------------------------------------------------------ outcomes
 LEARNING_OUTCOMES = [

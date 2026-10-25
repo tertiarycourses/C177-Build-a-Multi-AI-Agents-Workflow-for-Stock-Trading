@@ -1,0 +1,43 @@
+{
+  "NVDA": [
+    {
+      "title": "Nvidia shares surge on record data-center revenue",
+      "description": "Analysts upgrade targets",
+      "source": "Sample Wire",
+      "url": "https://example.com/1",
+      "published": "2026-10-23"
+    },
+    {
+      "title": "Regulators probe chip export rules",
+      "description": "Possible restrictions weigh on sector",
+      "source": "Sample Wire",
+      "url": "https://example.com/2",
+      "published": "2026-10-22"
+    }
+  ],
+  "AAPL": [
+    {
+      "title": "Apple misses China sales estimates",
+      "description": "Shares fall in early trading",
+      "source": "Sample Wire",
+      "url": "https://example.com/3",
+      "published": "2026-10-23"
+    },
+    {
+      "title": "Apple raises dividend",
+      "description": "Services profit growth continues",
+      "source": "Sample Wire",
+      "url": "https://example.com/4",
+      "published": "2026-10-21"
+    }
+  ],
+  "SPY": [
+    {
+      "title": "S&P 500 closes at record as rate cut hopes rally",
+      "description": "",
+      "source": "Sample Wire",
+      "url": "https://example.com/5",
+      "published": "2026-10-23"
+    }
+  ]
+}

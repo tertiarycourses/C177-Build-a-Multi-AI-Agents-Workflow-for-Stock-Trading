@@ -33,7 +33,7 @@ In place of the assessment block the deck carries a **"How You'll Learn"** flow
 ## Layout
 
 ```
-<skill-dir>/
+.claude/skills/non-wsq-courseware-build/
   SKILL.md
   assets/            brand assets (tertiary-infotech-logo.png, optional course-badge.png)
   build/
@@ -66,36 +66,56 @@ data-driven throughout:
 
 ## Build
 
-Resolve `<skill-dir>` from this `SKILL.md`. When the skill is installed at user
-scope, set `COURSE_REPO` to the target repository so generated artifacts land
-in that repository rather than beside the installed skill. On Windows, prefer
-Git Bash (`C:\Program Files\Git\bin\bash.exe`) over the WSL launcher. The
-orchestrator auto-detects LibreOffice in its standard Windows installation
-path; set `SOFFICE` explicitly for a non-standard install.
-
 ```bash
 # one command: PPT + LP + LG as DOCX + PDF, with page-numbered TOCs
-COURSE_REPO="<course-repo>" bash "<skill-dir>/build/build_courseware.sh"
+bash .claude/skills/non-wsq-courseware-build/build/build_courseware.sh
 
 # or individually
-COURSE_REPO="<course-repo>" python "<skill-dir>/build/build_slides.py"
-COURSE_REPO="<course-repo>" python "<skill-dir>/build/build_lesson_plan.py"
-COURSE_REPO="<course-repo>" python "<skill-dir>/build/build_learner_guide.py"
+python3 .claude/skills/non-wsq-courseware-build/build/build_slides.py
+python3 .claude/skills/non-wsq-courseware-build/build/build_lesson_plan.py
+python3 .claude/skills/non-wsq-courseware-build/build/build_learner_guide.py
 ```
 
 **Do not** pair this with the `wsq-assessment` skill — non-WSQ courses have no
 assessment. There is deliberately no assessment builder in this suite.
 
+## HARD RULE — Knowledge → Lab (every lab is preceded by its own concepts)
+
+The deck ALWAYS flows **knowledge → lab**: the concept slides a lab applies come immediately
+before that lab, and the lab follows them.
+
+- Within a topic, interleave: *concepts for Lab A → Lab A → concepts for Lab B → Lab B*.
+  **Never** put all of a topic's concept slides first and then run its labs back to back.
+- Place each concept before the **first** lab that applies it — never after. Example: the
+  human-in-the-loop and guardrail slides sit after Lab 3 and directly before the HITL lab
+  (Lab 4), not bunched at the top of Topic 2.
+- No lab starts cold. If a lab has no concept slides of its own, write them (from the lab's
+  content and the Learner Guide) and place them before that lab.
+- A tea/lunch break or day boundary may fall between a concept block and its lab; another
+  topic's content may not.
+- Keep all three artifacts in the same order: the Lesson Plan timetable runs concepts → lab for
+  each lab, and the Learner Guide prints "Key Concepts for Lab N" directly before each lab.
+- **Check before delivery:** list the deck's slide titles in order and confirm every lab block
+  is preceded by its own concept slides. A concept slide that comes after the lab it supports
+  is a defect.
+- In the single-source builder this is one concept list per lab in `concepts.py` (e.g.
+  `TOPIC2_CHATBOT`, `TOPIC2_HITL`), rendered in `build_slides.py` as
+  `render_concepts(list)` → `lab_block(lab)` pairs, with `slide_index.py` replaying the same
+  order and the LG's `LAB_CONCEPTS` assigning every key concept to exactly one lab.
+
 ## After a build (mandatory)
 
 Bump `VERSION` and add a `VERSION_HISTORY` row in `course_data.py`, move
 superseded versioned files to `courseware/archive/`, then run the
-`non-wsq-courseware-qa` custom agent to audit the deck — it fails the build if any
+**non-wsq-courseware-qa** agent to audit the deck — it fails the build if any
 WSQ/SSG/TRAQOM/assessment content has leaked back in.
 
 ## Reusing for a new course
 
-Copy this skill into the new course's `.agents/skills/non-wsq-courseware-build/`,
+Copy this skill into the new course's `.claude/skills/non-wsq-courseware-build/`,
 write `course_data.py` + `data_domainN.py`, drop any course badge into `assets/`,
-and run the orchestrator. The engine files are reused unchanged. Keep the
-user-level installed copy unchanged when the data is course-specific.
+and run the orchestrator. The engine files are reused unchanged.
+
+## Scope guard — only `C…` courses are non-WSQ (user rule, 19 Oct 2026)
+
+This skill is for **real non-WSQ courses only — course codes starting with `C`** (no funding). A course with a **`TGS-` code is WSQ or CASL, and CASL is treated exactly as WSQ** (same SkillsFuture funding; the only difference is that CASL issues no Statement of Attainment). If the course code starts with `TGS-` — even when its Course Proposal says "Non-WSQ CASL" — STOP and use the WSQ skills instead.

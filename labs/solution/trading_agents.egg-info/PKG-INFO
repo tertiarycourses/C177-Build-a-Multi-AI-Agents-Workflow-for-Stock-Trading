@@ -1,0 +1,18 @@
+Metadata-Version: 2.4
+Name: trading-agents
+Version: 1.0.0
+Summary: A multi AI agents workflow for stock trading: lead, finance research, news sentiment, trading strategy, signal generation, stock trader, performance analysis and strategy review agents (C177 reference solution).
+Requires-Python: >=3.11
+Requires-Dist: pandas>=2.2
+Requires-Dist: numpy>=1.26
+Requires-Dist: httpx>=0.27
+Requires-Dist: python-dotenv>=1.0
+Provides-Extra: live
+Requires-Dist: yfinance>=0.2.50; extra == "live"
+Requires-Dist: alpaca-py>=0.30; extra == "live"
+Requires-Dist: anthropic>=0.40; extra == "live"
+Requires-Dist: openai>=1.50; extra == "live"
+Provides-Extra: dashboard
+Requires-Dist: streamlit>=1.38; extra == "dashboard"
+Provides-Extra: dev
+Requires-Dist: pytest>=8; extra == "dev"
